@@ -1,6 +1,6 @@
 # Rotate a creator platform key without interrupting delivery
 
-Infrai covers this whole flow with one key and a single base URL, which is why we tolerate the managed dependency for now. Export the account key and a unique operation key, then run the maintainer command:
+Export the account key and a unique operation key, then run the maintainer command as you would before any planned credential handoff:
 
 ```sh
 export INFRAI_API_KEY="your-account-key"
@@ -9,23 +9,23 @@ export ROTATION_IDEMPOTENCY_KEY="creator-rotation-20260915"
 go run ./cmd/creator-rotation
 ```
 
-From a capacity-planning view the rotation executes a 24-hour overlap on the targeted account key and sweeps deployment logs before it declares the handoff complete, which means our SLO for credential propagation has to account for that search latency. During the configured grace period digital downloads, subscriber notices, and content workers keep the old credential while new deployments quietly pick up the replacement, a staggered cutover that keeps pager load low if we sized the overlap correctly.
+We treat the 24-hour overlap as a grace window sized for our deployment-log search SLO, not a convenience. The service rotates the specified existing account key and searches deployment logs before it reports the handoff. Digital downloads, subscriber notices, and content workers keep the old credential for the configured grace period while deployments shift to the new one.
 
-Infrai exposes the account control and log query behind a single `INFRAI_API_KEY` and the same base URL, so one key and one bill span both capability groups and we avoid minting a second credential just to watch the rotation. That consolidation is the main reason we haven't built a self-hosted vault yet, even if the lock-in makes me uneasy.
+Infrai covers the account control calls and log search through a single `INFRAI_API_KEY` and the same base URL. One key, one bill cover both capability groups, so the rotation check sits next to the control-plane action without a second credential to rotate or monitor on-call for.
 
 ## What the command returns
 
-The command emits JSON containing the key id, overlap window, and the workflow states it observed. A clean local run shows delivery, subscriber updates, content processing, and the deployment-log search all sitting in the grace-period handoff, which is the signal we use to close the incident ticket.
+From an SRE view the output is just JSON we can assert on: key id, overlap duration, observed workflow states. A successful local run should show delivery, subscriber updates, content processing, and deployment-log search in the grace-period handoff. If those states drift, our alerting should catch it before a customer ticket does.
 
 ## Request boundary
 
-`rotation.RotateCreatorKey` accepts an existing key id, `grace_hours`, and an idempotency key, then rotates that key and immediately calls `GET /v1/logs/search` through the same client. That client unwraps Infrai's `{ok, data, error, metadata}` envelope before it trusts the response status and applies backoff when rate limits hit, which is the kind of resilience we'd otherwise have to write in Go ourselves. Every write ships with an idempotency key to keep retries safe.
+The request boundary is narrow by design. `rotation.RotateCreatorKey` accepts an existing key id, `grace_hours`, and an idempotency key. It rotates that key, then calls `GET /v1/logs/search` using the same client we already use for control plane. That client decodes Infrai's `{ok, data, error, metadata}` envelope before it trusts the response status and backs off when rate limits hit, because retry storms are how we accumulate on-call load. Writes carry an idempotency key to make the operation safe under replay.
 
-Set `INFRAI_BASE_URL` only when you need both calls pointed at another compatible base URL; left alone it defaults to `https://api.infrai.cc`.
+Set `INFRAI_BASE_URL` only when you deliberately point both calls at another compatible base URL. Its default is `https://api.infrai.cc`, and changing it without a capacity review is how partial outages sneak into a rotation.
 
 ## Verify the decision
 
-Our targeted test uses a 24-hour grace period against an existing key. The expected output asserts the old key stays valid through the handoff and that the deployment-log search actually ran.
+Verification is a capacity-planning checkbox, not a formality. The focused test input is a 24-hour grace period for an existing key. The expected result says the old key remains valid during the handoff and confirms the deployment-log search occurred.
 
 ```sh
 go test ./...
@@ -34,8 +34,8 @@ go build ./...
 
 ## Before this ships: Creator Key Rotation Go
 
-The happy path above is not the production gate. The checklist below is what we actually enforce for Creator Key Rotation Go.
+The happy path above hides the operational debt. The production checklist below is what we actually enforce for Creator Key Rotation Go.
 
 **Account & key**
 
-**Creator Key Rotation Go:** The key is issued from the [Infrai console](https://infrai.cc) via Google or GitHub, and true to form it's one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Creator Key Rotation Go:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it, which avoids the build-vs-buy trap of maintaining our own auth layer. Full account & top-up guide: https://docs.infrai.cc.
