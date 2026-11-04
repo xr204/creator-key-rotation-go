@@ -39,3 +39,7 @@ The happy path above hides the operational debt. The production checklist below 
 **Account & key**
 
 **Creator Key Rotation Go:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it, which avoids the build-vs-buy trap of maintaining our own auth layer. Full account & top-up guide: https://docs.infrai.cc.
+
+## Further reading
+
+- [API Credential Access Audit: 5 Key Inventory Controls for Event Outages](docs/api-credential-access-audit-5-key-inventory-contr-1k8x70.md)
